@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { ArrowLeft, Camera, AlertTriangle, Check, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Camera, AlertTriangle, Check, Image as ImageIcon, ChevronRight, ChevronLeft, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -22,20 +22,24 @@ interface ExecutionScreenProps {
 
 export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScreenProps) {
   const [etapas, setEtapas] = useState<EtapaExecucao[]>(atribuicao.etapas);
-  const [currentEtapaIndex, setCurrentEtapaIndex] = useState(
-    etapas.findIndex(e => e.status === 'pendente')
-  );
+  const [currentEtapaIndex, setCurrentEtapaIndex] = useState(0);
   const [impedimentoSheet, setImpedimentoSheet] = useState(false);
-  const [justificativa, setJustificativa] = useState('');
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [localJustificativa, setLocalJustificativa] = useState('');
+  const [isFinished, setIsFinished] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const currentEtapa = etapas[currentEtapaIndex >= 0 ? currentEtapaIndex : 0];
+  const currentEtapa = etapas[currentEtapaIndex];
   const totalEtapas = etapas.length;
-  const etapasConcluidas = etapas.filter(e => e.status !== 'pendente').length;
 
   const handleTakePhoto = () => {
     fileInputRef.current?.click();
+  };
+
+  const updateCurrentEtapa = (updates: Partial<EtapaExecucao>) => {
+    const updatedEtapas = [...etapas];
+    updatedEtapas[currentEtapaIndex] = { ...currentEtapa, ...updates };
+    setEtapas(updatedEtapas);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,106 +48,88 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
       const reader = new FileReader();
       reader.onloadend = () => {
         const photoUrl = reader.result as string;
-        setCapturedPhoto(photoUrl);
         
         // TODO: Upload para Supabase Storage
         // const formData = new FormData();
         // formData.append('file', file);
-        // const response = await fetch('API_BASE_URL/api/upload', {
-        //   method: 'POST',
-        //   headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-        //   body: formData,
-        // });
+        // const response = await fetch('API_BASE_URL/api/upload', ...);
         // const { url } = await response.json();
         
-        // Simula conclusão da etapa
-        setTimeout(() => {
-          completeCurrentEtapa(photoUrl);
-        }, 500);
+        // Salva a foto na etapa e marca como concluída, MAS NÃO AVANÇA A TELA (Demanda B)
+        updateCurrentEtapa({ 
+          foto_url: photoUrl, 
+          status: 'concluida',
+          justificativa: undefined // Limpa impedimento se a pessoa resolveu tirar foto
+        });
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const completeCurrentEtapa = (photoUrl: string | null) => {
-    const updatedEtapas = [...etapas];
-    updatedEtapas[currentEtapaIndex] = {
-      ...currentEtapa,
-      status: 'concluida',
-      foto_url: photoUrl || undefined,
-    };
-    setEtapas(updatedEtapas);
-    setCapturedPhoto(null);
-
-    // TODO: Conectar à API Flask
-    // await fetch('API_BASE_URL/api/execucoes', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${localStorage.getItem('token')}`,
-    //   },
-    //   body: JSON.stringify({
-    //     id_etapa: currentEtapa.id,
-    //     foto_url: photoUrl,
-    //     justificativa: null,
-    //   }),
-    // });
-
-    // Avança para próxima etapa pendente
-    const nextPendingIndex = updatedEtapas.findIndex((e, i) => i > currentEtapaIndex && e.status === 'pendente');
-    if (nextPendingIndex >= 0) {
-      setCurrentEtapaIndex(nextPendingIndex);
-    } else if (updatedEtapas.every(e => e.status !== 'pendente')) {
-      // Todas concluídas
-      setTimeout(onComplete, 500);
-    }
-  };
-
   const handleSaveImpedimento = () => {
-    if (!justificativa.trim()) return;
+    if (!localJustificativa.trim()) return;
 
-    const updatedEtapas = [...etapas];
-    updatedEtapas[currentEtapaIndex] = {
-      ...currentEtapa,
+    // Salva o impedimento e marca o status, MAS NÃO AVANÇA (Demanda B)
+    updateCurrentEtapa({
       status: 'impedida',
-      justificativa: justificativa.trim(),
-    };
-    setEtapas(updatedEtapas);
+      justificativa: localJustificativa.trim(),
+      foto_url: undefined // Limpa a foto se a pessoa mudou para impedimento
+    });
 
-    // TODO: Conectar à API Flask
-    // await fetch('API_BASE_URL/api/execucoes', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${localStorage.getItem('token')}`,
-    //   },
-    //   body: JSON.stringify({
-    //     id_etapa: currentEtapa.id,
-    //     foto_url: null,
-    //     justificativa: justificativa.trim(),
-    //   }),
-    // });
-
-    setJustificativa('');
+    setLocalJustificativa('');
     setImpedimentoSheet(false);
+  };
 
-    // Avança para próxima etapa pendente
-    const nextPendingIndex = updatedEtapas.findIndex((e, i) => i > currentEtapaIndex && e.status === 'pendente');
-    if (nextPendingIndex >= 0) {
-      setCurrentEtapaIndex(nextPendingIndex);
-    } else if (updatedEtapas.every(e => e.status !== 'pendente')) {
-      setTimeout(onComplete, 500);
+  const handleNext = () => {
+    // Se a etapa estava pendente mas não exigia foto, e o cara clicou em avançar, marcamos como concluída
+    if (currentEtapa.status === 'pendente') {
+      updateCurrentEtapa({ status: 'concluida' });
+    }
+
+    if (currentEtapaIndex < totalEtapas - 1) {
+      setCurrentEtapaIndex(prev => prev + 1);
+    } else {
+      setIsFinished(true); // Chegou no fim, mostra a tela de sucesso
     }
   };
 
-  const allComplete = etapas.every(e => e.status !== 'pendente');
+  const handlePrev = () => {
+    if (currentEtapaIndex > 0) {
+      setCurrentEtapaIndex(prev => prev - 1);
+    }
+  };
+
+  const handleFinalSubmit = () => {
+    // Aqui nós enviaremos o POST gigante para o Flask (Faremos isso na MS 5.4)
+    onComplete();
+  };
+
+  // Regra de validação: Só pode avançar se não exigir foto OU se tiver foto OU se tiver justificativa
+  const canAdvance = !currentEtapa.requer_foto || !!currentEtapa.foto_url || !!currentEtapa.justificativa;
+
+  if (isFinished) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 text-center">
+        <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-6 shadow-sm">
+          <Check className="w-10 h-10 text-green-600" />
+        </div>
+        <h2 className="text-2xl font-bold text-foreground mb-2">Vistoria Pronta!</h2>
+        <p className="text-muted-foreground mb-8 max-w-xs">
+          Todas as etapas foram revisadas. Clique abaixo para sincronizar os dados com a nuvem.
+        </p>
+        <Button onClick={handleFinalSubmit} className="w-full max-w-xs h-14 bg-primary hover:bg-primary/90 text-lg shadow-lg">
+          Enviar para Auditoria
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col pb-24">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-card border-b border-border">
+      <header className="sticky top-0 z-40 bg-card border-b border-border shadow-sm">
         <div className="flex items-center gap-3 h-14 px-4">
-          <Button variant="ghost" size="icon" onClick={onBack}>
+          <Button variant="ghost" size="icon" onClick={onBack} className="-ml-2">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="flex-1 min-w-0">
@@ -159,150 +145,148 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
             {etapas.map((etapa, i) => (
               <div
                 key={etapa.id}
-                className={`h-1.5 flex-1 rounded-full transition-colors ${
-                  etapa.status === 'concluida'
-                    ? 'bg-green-500'
-                    : etapa.status === 'impedida'
-                    ? 'bg-amber-500'
-                    : i === currentEtapaIndex
-                    ? 'bg-primary'
-                    : 'bg-muted'
+                className={`h-1.5 flex-1 rounded-full transition-all ${
+                  etapa.status === 'concluida' ? 'bg-green-500'
+                  : etapa.status === 'impedida' ? 'bg-amber-500'
+                  : i === currentEtapaIndex ? 'bg-primary scale-y-125'
+                  : 'bg-muted'
                 }`}
               />
             ))}
           </div>
-          <p className="text-xs text-muted-foreground mt-2 text-center">
+          <p className="text-xs text-muted-foreground mt-2 text-center font-medium">
             Etapa {currentEtapaIndex + 1} de {totalEtapas}
           </p>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col p-4">
-        {allComplete ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center">
-            <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-4">
-              <Check className="w-10 h-10 text-green-600" />
-            </div>
-            <h2 className="text-xl font-bold text-foreground mb-2">
-              Vistoria Concluída!
-            </h2>
-            <p className="text-muted-foreground mb-6">
-              Todas as etapas foram registradas com sucesso.
+      <main className="flex-1 flex flex-col p-5">
+        <div className="mb-6">
+          <span className="text-[10px] font-bold text-primary uppercase tracking-wider bg-primary/10 px-2 py-1 rounded-md">
+            Etapa {currentEtapaIndex + 1}
+          </span>
+          <h2 className="text-2xl font-bold text-foreground mt-3 leading-tight">
+            {currentEtapa.descricao}
+          </h2>
+          {currentEtapa.requer_foto && (
+            <p className="text-sm font-medium text-muted-foreground mt-2 flex items-center gap-1.5">
+              <Camera className="w-4 h-4" /> OBRIGATÓRIO FOTO
             </p>
-            <Button onClick={onComplete} className="bg-primary hover:bg-primary/90">
-              Voltar ao Início
-            </Button>
+          )}
+        </div>
+
+        {/* Preview da Foto */}
+        {currentEtapa.foto_url && (
+          <div className="mb-6 relative rounded-2xl overflow-hidden aspect-square bg-muted shadow-inner border border-border">
+            <img
+              src={currentEtapa.foto_url}
+              alt="Foto capturada"
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute top-3 right-3 bg-green-500 text-white p-1.5 rounded-full shadow-md">
+              <Check className="w-5 h-5" />
+            </div>
           </div>
-        ) : (
-          <>
-            {/* Current Step Title */}
-            <div className="mb-6">
-              <span className="text-xs font-medium text-primary uppercase tracking-wide">
-                Etapa {currentEtapaIndex + 1}
-              </span>
-              <h2 className="text-xl font-bold text-foreground mt-1">
-                {currentEtapa.descricao}
-              </h2>
-              {currentEtapa.requer_foto && (
-                <p className="text-sm text-muted-foreground mt-2 flex items-center gap-1">
-                  <Camera className="w-4 h-4" />
-                  Esta etapa requer uma foto
-                </p>
-              )}
-            </div>
-
-            {/* Photo Preview Area */}
-            {capturedPhoto && (
-              <div className="mb-6 relative rounded-xl overflow-hidden aspect-square bg-muted">
-                <img
-                  src={capturedPhoto}
-                  alt="Foto capturada"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 flex items-center justify-center bg-background/50">
-                  <div className="flex items-center gap-2 text-green-600">
-                    <Check className="w-6 h-6" />
-                    <span className="font-medium">Salvando...</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="mt-auto space-y-3">
-              {/* Take Photo Button */}
-              <Button
-                onClick={handleTakePhoto}
-                className="w-full h-16 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-lg"
-              >
-                <Camera className="w-6 h-6 mr-3" />
-                Tirar Foto
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
-              </Button>
-
-              {/* Skip without photo (if not required) */}
-              {!currentEtapa.requer_foto && (
-                <Button
-                  variant="outline"
-                  onClick={() => completeCurrentEtapa(null)}
-                  className="w-full h-12"
-                >
-                  <ImageIcon className="w-5 h-5 mr-2" />
-                  Prosseguir sem foto
-                </Button>
-              )}
-
-              {/* Report Impediment */}
-              <Button
-                variant="outline"
-                onClick={() => setImpedimentoSheet(true)}
-                className="w-full h-12 border-amber-500 text-amber-600 hover:bg-amber-50"
-              >
-                <AlertTriangle className="w-5 h-5 mr-2" />
-                Relatar Impedimento
-              </Button>
-            </div>
-          </>
         )}
+
+        {/* Aviso de Impedimento */}
+        {currentEtapa.justificativa && (
+          <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 shadow-sm">
+            <div className="flex items-center gap-2 text-amber-600 font-semibold mb-1">
+              <AlertTriangle className="w-5 h-5" />
+              <span>Impedimento Relatado</span>
+            </div>
+            <p className="text-sm text-amber-800 mt-2">{currentEtapa.justificativa}</p>
+          </div>
+        )}
+
+        {/* Actions - Botões Grandes */}
+        <div className="mt-auto space-y-3">
+          <Button
+            onClick={handleTakePhoto}
+            variant={currentEtapa.foto_url ? "outline" : "default"}
+            className={`w-full h-14 font-semibold text-base ${!currentEtapa.foto_url ? 'bg-primary hover:bg-primary/90 shadow-md' : 'border-2'}`}
+          >
+            {currentEtapa.foto_url ? (
+              <><RefreshCw className="w-5 h-5 mr-2" /> Tirar Outra Foto</>
+            ) : (
+              <><Camera className="w-6 h-6 mr-2" /> Tirar Foto</>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={() => {
+              setLocalJustificativa(currentEtapa.justificativa || '');
+              setImpedimentoSheet(true);
+            }}
+            className="w-full h-14 border-2 border-amber-200 text-amber-600 hover:bg-amber-50 font-semibold"
+          >
+            <AlertTriangle className="w-5 h-5 mr-2" />
+            {currentEtapa.justificativa ? 'Editar Impedimento' : 'Relatar Impedimento'}
+          </Button>
+        </div>
       </main>
 
-      {/* Impedimento Sheet */}
+      {/* Footer de Navegação Fixo (Demanda A e B) */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t border-border flex gap-3 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-50">
+        <Button 
+          variant="outline" 
+          onClick={handlePrev} 
+          disabled={currentEtapaIndex === 0}
+          className="h-12 flex-1 border-2 font-semibold"
+        >
+          <ChevronLeft className="w-5 h-5 mr-1" /> Anterior
+        </Button>
+
+        <Button 
+          onClick={handleNext} 
+          disabled={!canAdvance}
+          className="h-12 flex-1 font-semibold text-base bg-foreground text-background hover:bg-foreground/90 transition-all"
+        >
+          {currentEtapaIndex === totalEtapas - 1 ? 'Concluir' : 'Avançar'} <ChevronRight className="w-5 h-5 ml-1" />
+        </Button>
+      </div>
+
+      {/* Sheet de Impedimento */}
       <Sheet open={impedimentoSheet} onOpenChange={setImpedimentoSheet}>
-        <SheetContent side="bottom" className="rounded-t-3xl">
+        <SheetContent side="bottom" className="rounded-t-3xl h-[70vh]">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-500" />
-              Relatar Impedimento
+              Motivo do Impedimento
             </SheetTitle>
             <SheetDescription>
-              Descreva o motivo pelo qual não foi possível completar esta etapa
+              Explique detalhadamente por que esta etapa não pode ser concluída ou fotografada.
             </SheetDescription>
           </SheetHeader>
 
-          <div className="py-4">
+          <div className="py-6">
             <Textarea
-              placeholder="Ex: Portão trancado, área em manutenção, equipamento indisponível..."
-              value={justificativa}
-              onChange={(e) => setJustificativa(e.target.value)}
-              className="min-h-[120px] resize-none"
+              placeholder="Ex: Portão trancado, área interditada pela segurança..."
+              value={localJustificativa}
+              onChange={(e) => setLocalJustificativa(e.target.value)}
+              className="min-h-[150px] resize-none text-base p-4"
+              autoFocus
             />
           </div>
 
-          <SheetFooter>
+          <SheetFooter className="absolute bottom-0 left-0 right-0 p-4 border-t bg-card">
             <Button
               onClick={handleSaveImpedimento}
-              disabled={!justificativa.trim()}
-              className="w-full h-12 bg-amber-500 hover:bg-amber-600 text-white font-semibold"
+              disabled={!localJustificativa.trim()}
+              className="w-full h-14 bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg"
             >
-              Salvar Impedimento
+              Confirmar Impedimento
             </Button>
           </SheetFooter>
         </SheetContent>
