@@ -1,16 +1,6 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
-
-const inter = Inter({ 
-  subsets: ["latin"],
-  variable: '--font-inter'
-});
-const geistMono = Geist_Mono({ 
-  subsets: ["latin"],
-  variable: '--font-geist-mono'
-});
 
 export const metadata: Metadata = {
   title: 'Vistoria IA - Auditoria Inteligente',
@@ -50,7 +40,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body className={`${inter.variable} ${geistMono.variable} font-sans antialiased`}>
+      {/* Removidas as variáveis das fontes do Google, mantendo o Tailwind padrão */}
+      <body className="font-sans antialiased">
         {children}
         <Analytics />
       </body>
