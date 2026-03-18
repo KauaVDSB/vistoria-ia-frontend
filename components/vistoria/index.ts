@@ -1,0 +1,13 @@
+// Vistoria IA - Component Exports
+export { VistoriaApp } from './vistoria-app';
+export { LoginScreen } from './login-screen';
+export { AdminDashboard } from './admin-dashboard';
+export { AdminHeader } from './admin-header';
+export { KPICards } from './kpi-cards';
+export { FilterPills } from './filter-pills';
+export { AuditCard } from './audit-card';
+export { CreateChecklistSheet } from './create-checklist-sheet';
+export { StaffDashboard } from './staff-dashboard';
+export { StaffHeader } from './staff-header';
+export { VistoriaCard } from './vistoria-card';
+export { ExecutionScreen } from './execution-screen';
