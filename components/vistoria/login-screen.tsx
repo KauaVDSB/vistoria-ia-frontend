@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FieldGroup, Field, FieldLabel } from '@/components/ui/field';
 import type { User as UserType } from '@/lib/types';
-import { mockAdminUser, mockStaffUser } from '@/lib/mocks';
+import { supabase } from '@/lib/supabase';
+import { useToast } from '@/hooks/use-toast';
 
 interface LoginScreenProps {
   onLogin: (user: UserType) => void;
@@ -18,33 +19,46 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSupabaseLogin = async (loginEmail: string, loginPass: string) => {
     setIsLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: loginPass,
+      });
 
-    // TODO: Conectar à API Flask
-    // const response = await fetch('API_BASE_URL/api/auth/login', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ email, senha: password }),
-    // });
-    // const data = await response.json();
-    // if (data.token) {
-    //   localStorage.setItem('token', data.token);
-    //   onLogin(data.user);
-    // }
+      if (error) throw error;
 
-    // Simula delay de API
-    setTimeout(() => {
-      setIsLoading(false);
-      // Por padrão, logar como staff se o email contiver "joao" ou como admin
-      if (email.toLowerCase().includes('joao')) {
-        onLogin(mockStaffUser);
-      } else {
-        onLogin(mockAdminUser);
+      if (data.session) {
+        // Salva o Token JWT no localStorage para o Flask usar nas requisições
+        localStorage.setItem('token', data.session.access_token);
+        
+        // Determina a role (Mock dinâmico alinhado com o Flask)
+        const role = loginEmail === 'admin@teste.com' ? 'admin' : 'staff';
+        
+        onLogin({
+          id: data.user.id,
+          email: data.user.email || loginEmail,
+          nome: role === 'admin' ? 'Gestor' : 'Operador',
+          role: role,
+        });
       }
-    }, 800);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro de Autenticação",
+        description: error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : error.message,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSupabaseLogin(email, password);
   };
 
   return (
@@ -80,7 +94,6 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  autoComplete="email"
                 />
               </Field>
               <Field>
@@ -93,20 +106,13 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    autoComplete="current-password"
-                    className="pr-10"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                   >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </Field>
@@ -114,17 +120,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
             <Button
               type="submit"
-              className="w-full mt-6 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold h-12"
+              className="w-full mt-6 bg-primary h-12 text-lg font-semibold"
               disabled={isLoading}
             >
-              {isLoading ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                  Entrando...
-                </span>
-              ) : (
-                'Entrar'
-              )}
+              {isLoading ? 'Entrando...' : 'Entrar'}
             </Button>
           </form>
         </CardContent>
@@ -132,44 +131,27 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
       {/* Quick Access Demo */}
       <div className="mt-8 w-full max-w-sm">
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">
-              Acesso rápido (demo)
-            </span>
-          </div>
+        <div className="relative mb-4 flex justify-center text-xs uppercase">
+          <span className="bg-background px-2 text-muted-foreground">Acesso rápido (demo)</span>
         </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <Button
             variant="outline"
-            className="h-auto py-4 flex flex-col items-center gap-2 border-2 hover:border-primary hover:bg-primary/5 transition-all"
-            onClick={() => onLogin(mockAdminUser)}
+            className="h-auto py-4 flex flex-col items-center gap-2 border-2 hover:border-primary"
+            onClick={() => handleSupabaseLogin('admin@teste.com', 'Vistoria2026!')}
+            disabled={isLoading}
           >
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-primary" />
-            </div>
-            <div className="text-center">
-              <p className="font-medium text-sm">Admin</p>
-              <p className="text-xs text-muted-foreground">Validar vistorias</p>
-            </div>
+            <Shield className="w-5 h-5 text-primary" />
+            <p className="font-medium text-sm">Admin</p>
           </Button>
-
           <Button
             variant="outline"
-            className="h-auto py-4 flex flex-col items-center gap-2 border-2 hover:border-green-500 hover:bg-green-50 transition-all"
-            onClick={() => onLogin(mockStaffUser)}
+            className="h-auto py-4 flex flex-col items-center gap-2 border-2 hover:border-green-500"
+            onClick={() => handleSupabaseLogin('staff@teste.com', 'Vistoria2026!')}
+            disabled={isLoading}
           >
-            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-              <User className="w-5 h-5 text-green-600" />
-            </div>
-            <div className="text-center">
-              <p className="font-medium text-sm">Staff</p>
-              <p className="text-xs text-muted-foreground">Executar vistorias</p>
-            </div>
+            <User className="w-5 h-5 text-green-600" />
+            <p className="font-medium text-sm">Staff</p>
           </Button>
         </div>
       </div>
