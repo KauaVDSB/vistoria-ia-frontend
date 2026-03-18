@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { StaffHeader } from './staff-header';
 import { VistoriaCard } from './vistoria-card';
 import type { User, Atribuicao } from '@/lib/types';
-import { mockAtribuicoes } from '@/lib/mocks';
+import { useToast } from '@/hooks/use-toast';
 
 interface StaffDashboardProps {
   user: User;
@@ -14,29 +14,35 @@ interface StaffDashboardProps {
 }
 
 export function StaffDashboard({ user, onLogout, onSelectVistoria }: StaffDashboardProps) {
-  const [atribuicoes, setAtribuicoes] = useState<Atribuicao[]>(mockAtribuicoes);
-  const [isLoading, setIsLoading] = useState(false);
+  const [atribuicoes, setAtribuicoes] = useState<Atribuicao[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
 
-  // TODO: Conectar à API Flask
-  // useEffect(() => {
-  //   const fetchAtribuicoes = async () => {
-  //     setIsLoading(true);
-  //     try {
-  //       const response = await fetch('API_BASE_URL/api/atribuicoes', {
-  //         headers: {
-  //           'Authorization': `Bearer ${localStorage.getItem('token')}`,
-  //         },
-  //       });
-  //       const data = await response.json();
-  //       setAtribuicoes(data);
-  //     } catch (error) {
-  //       console.error('Erro ao buscar atribuições:', error);
-  //     } finally {
-  //       setIsLoading(false);
-  //     }
-  //   };
-  //   fetchAtribuicoes();
-  // }, []);
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+  const fetchAtribuicoes = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/atribuicoes`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+      
+      if (!response.ok) throw new Error('Falha ao buscar vistorias pendentes');
+      
+      const data = await response.json();
+      setAtribuicoes(data);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Erro de Conexão", description: error.message });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [API_URL, toast]);
+
+  useEffect(() => {
+    fetchAtribuicoes();
+  }, [fetchAtribuicoes]);
 
   const pendentes = atribuicoes.filter(a => a.status !== 'concluido');
   const concluidas = atribuicoes.filter(a => a.status === 'concluido');
@@ -62,7 +68,7 @@ export function StaffDashboard({ user, onLogout, onSelectVistoria }: StaffDashbo
             ))}
           </div>
         ) : pendentes.length === 0 ? (
-          <div className="text-center py-12 bg-card rounded-xl">
+          <div className="text-center py-12 bg-card rounded-xl border border-border">
             <ClipboardList className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
             <p className="text-muted-foreground">
               Nenhuma vistoria pendente
@@ -91,7 +97,7 @@ export function StaffDashboard({ user, onLogout, onSelectVistoria }: StaffDashbo
                 <VistoriaCard
                   key={atribuicao.id}
                   atribuicao={atribuicao}
-                  onClick={() => {}}
+                  onClick={() => {}} // Desabilitado para concluídas por design
                 />
               ))}
             </div>
