@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { ArrowLeft, Camera, AlertTriangle, Check, Image as ImageIcon, ChevronRight, ChevronLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Camera, AlertTriangle, Check, Image as ImageIcon, ChevronRight, ChevronLeft, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -13,6 +13,8 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import type { Atribuicao, EtapaExecucao } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
+import { useToast } from '@/hooks/use-toast';
 
 interface ExecutionScreenProps {
   atribuicao: Atribuicao;
@@ -26,9 +28,13 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
   const [impedimentoSheet, setImpedimentoSheet] = useState(false);
   const [localJustificativa, setLocalJustificativa] = useState('');
   const [isFinished, setIsFinished] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
+  const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
   const currentEtapa = etapas[currentEtapaIndex];
   const totalEtapas = etapas.length;
 
@@ -42,38 +48,51 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
     setEtapas(updatedEtapas);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const photoUrl = reader.result as string;
-        
-        // TODO: Upload para Supabase Storage
-        // const formData = new FormData();
-        // formData.append('file', file);
-        // const response = await fetch('API_BASE_URL/api/upload', ...);
-        // const { url } = await response.json();
-        
-        // Salva a foto na etapa e marca como concluída, MAS NÃO AVANÇA A TELA (Demanda B)
-        updateCurrentEtapa({ 
-          foto_url: photoUrl, 
-          status: 'concluida',
-          justificativa: undefined // Limpa impedimento se a pessoa resolveu tirar foto
-        });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      // Gera um nome único para o ficheiro
+      const fileExt = file.name.split('.').pop() || 'jpg';
+      const fileName = `vistoria-${atribuicao.id}-etapa-${currentEtapa.id}-${Date.now()}.${fileExt}`;
+      
+      // Upload para o Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('checklists-fotos')
+        .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+      if (uploadError) throw uploadError;
+
+      // Obtém a URL pública da imagem
+      const { data: publicUrlData } = supabase.storage
+        .from('checklists-fotos')
+        .getPublicUrl(fileName);
+
+      updateCurrentEtapa({ 
+        foto_url: publicUrlData.publicUrl, 
+        status: 'concluida',
+        justificativa: undefined 
+      });
+
+      toast({ title: "Sucesso", description: "Fotografia anexada com sucesso." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Erro de Upload", description: error.message });
+    } finally {
+      setIsUploading(false);
+      // Limpa o input para permitir tirar a mesma foto de novo se necessário
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const handleSaveImpedimento = () => {
     if (!localJustificativa.trim()) return;
 
-    // Salva o impedimento e marca o status, MAS NÃO AVANÇA (Demanda B)
     updateCurrentEtapa({
       status: 'impedida',
       justificativa: localJustificativa.trim(),
-      foto_url: undefined // Limpa a foto se a pessoa mudou para impedimento
+      foto_url: undefined
     });
 
     setLocalJustificativa('');
@@ -81,7 +100,6 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
   };
 
   const handleNext = () => {
-    // Se a etapa estava pendente mas não exigia foto, e o cara clicou em avançar, marcamos como concluída
     if (currentEtapa.status === 'pendente') {
       updateCurrentEtapa({ status: 'concluida' });
     }
@@ -89,7 +107,7 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
     if (currentEtapaIndex < totalEtapas - 1) {
       setCurrentEtapaIndex(prev => prev + 1);
     } else {
-      setIsFinished(true); // Chegou no fim, mostra a tela de sucesso
+      setIsFinished(true);
     }
   };
 
@@ -99,12 +117,38 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
     }
   };
 
-  const handleFinalSubmit = () => {
-    // Aqui nós enviaremos o POST gigante para o Flask (Faremos isso na MS 5.4)
-    onComplete();
+  const handleFinalSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        atribuicao_id: atribuicao.id,
+        resultados: etapas.map(e => ({
+          id_etapa: e.id,
+          foto_url: e.foto_url || null,
+          justificativa: e.justificativa || null
+        }))
+      };
+
+      const response = await fetch(`${API_URL}/api/execucoes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) throw new Error('Erro ao sincronizar vistoria com o servidor.');
+
+      toast({ title: "Missão Cumprida", description: "A vistoria foi enviada para o gestor!" });
+      onComplete();
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Erro de Sincronização", description: error.message });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  // Regra de validação: Só pode avançar se não exigir foto OU se tiver foto OU se tiver justificativa
   const canAdvance = !currentEtapa.requer_foto || !!currentEtapa.foto_url || !!currentEtapa.justificativa;
 
   if (isFinished) {
@@ -115,10 +159,14 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
         </div>
         <h2 className="text-2xl font-bold text-foreground mb-2">Vistoria Pronta!</h2>
         <p className="text-muted-foreground mb-8 max-w-xs">
-          Todas as etapas foram revisadas. Clique abaixo para sincronizar os dados com a nuvem.
+          Todas as etapas foram revistas. Clique abaixo para sincronizar os dados com a nuvem.
         </p>
-        <Button onClick={handleFinalSubmit} className="w-full max-w-xs h-14 bg-primary hover:bg-primary/90 text-lg shadow-lg">
-          Enviar para Auditoria
+        <Button 
+          onClick={handleFinalSubmit} 
+          disabled={isSubmitting}
+          className="w-full max-w-xs h-14 bg-primary hover:bg-primary/90 text-lg shadow-lg"
+        >
+          {isSubmitting ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> A Enviar...</> : 'Enviar para Auditoria'}
         </Button>
       </div>
     );
@@ -171,7 +219,7 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
           </h2>
           {currentEtapa.requer_foto && (
             <p className="text-sm font-medium text-muted-foreground mt-2 flex items-center gap-1.5">
-              <Camera className="w-4 h-4" /> OBRIGATÓRIO FOTO
+              <Camera className="w-4 h-4" /> OBRIGATÓRIO FOTOGRAFIA
             </p>
           )}
         </div>
@@ -181,7 +229,7 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
           <div className="mb-6 relative rounded-2xl overflow-hidden aspect-square bg-muted shadow-inner border border-border">
             <img
               src={currentEtapa.foto_url}
-              alt="Foto capturada"
+              alt="Fotografia capturada"
               className="w-full h-full object-cover"
             />
             <div className="absolute top-3 right-3 bg-green-500 text-white p-1.5 rounded-full shadow-md">
@@ -201,17 +249,20 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
           </div>
         )}
 
-        {/* Actions - Botões Grandes */}
+        {/* Actions */}
         <div className="mt-auto space-y-3">
           <Button
             onClick={handleTakePhoto}
+            disabled={isUploading}
             variant={currentEtapa.foto_url ? "outline" : "default"}
             className={`w-full h-14 font-semibold text-base ${!currentEtapa.foto_url ? 'bg-primary hover:bg-primary/90 shadow-md' : 'border-2'}`}
           >
-            {currentEtapa.foto_url ? (
-              <><RefreshCw className="w-5 h-5 mr-2" /> Tirar Outra Foto</>
+            {isUploading ? (
+              <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> A processar...</>
+            ) : currentEtapa.foto_url ? (
+              <><RefreshCw className="w-5 h-5 mr-2" /> Tirar Outra Fotografia</>
             ) : (
-              <><Camera className="w-6 h-6 mr-2" /> Tirar Foto</>
+              <><Camera className="w-6 h-6 mr-2" /> Tirar Fotografia</>
             )}
             <input
               ref={fileInputRef}
@@ -229,6 +280,7 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
               setLocalJustificativa(currentEtapa.justificativa || '');
               setImpedimentoSheet(true);
             }}
+            disabled={isUploading}
             className="w-full h-14 border-2 border-amber-200 text-amber-600 hover:bg-amber-50 font-semibold"
           >
             <AlertTriangle className="w-5 h-5 mr-2" />
@@ -237,12 +289,12 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
         </div>
       </main>
 
-      {/* Footer de Navegação Fixo (Demanda A e B) */}
+      {/* Footer Fixo */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t border-border flex gap-3 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-50">
         <Button 
           variant="outline" 
           onClick={handlePrev} 
-          disabled={currentEtapaIndex === 0}
+          disabled={currentEtapaIndex === 0 || isUploading}
           className="h-12 flex-1 border-2 font-semibold"
         >
           <ChevronLeft className="w-5 h-5 mr-1" /> Anterior
@@ -250,7 +302,7 @@ export function ExecutionScreen({ atribuicao, onBack, onComplete }: ExecutionScr
 
         <Button 
           onClick={handleNext} 
-          disabled={!canAdvance}
+          disabled={!canAdvance || isUploading}
           className="h-12 flex-1 font-semibold text-base bg-foreground text-background hover:bg-foreground/90 transition-all"
         >
           {currentEtapaIndex === totalEtapas - 1 ? 'Concluir' : 'Avançar'} <ChevronRight className="w-5 h-5 ml-1" />
