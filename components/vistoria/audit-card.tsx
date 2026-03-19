@@ -22,39 +22,20 @@ interface AuditCardProps {
 }
 
 export function AuditCard({ item, onValidate, onReject }: AuditCardProps) {
-  const [localStatus, setLocalStatus] = useState<'pendente' | 'validado' | 'reprovado'>(item.status);
+  const [localStatus, setLocalStatus] = useState<string>(item.status);
 
   const handleValidate = () => {
     setLocalStatus('validado');
     onValidate(item.id_execucao);
-    
-    // TODO: Conectar à API Flask
-    // await fetch('API_BASE_URL/api/auditoria/validar', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${localStorage.getItem('token')}`,
-    //   },
-    //   body: JSON.stringify({ id_execucao: item.id_execucao }),
-    // });
   };
 
   const handleReject = () => {
     setLocalStatus('reprovado');
     onReject(item.id_execucao);
-    
-    // TODO: Conectar à API Flask
-    // await fetch('API_BASE_URL/api/auditoria/reprovar', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${localStorage.getItem('token')}`,
-    //   },
-    //   body: JSON.stringify({ id_execucao: item.id_execucao }),
-    // });
   };
 
-  const isProcessed = localStatus !== 'pendente';
+  const isProcessed = !['pendente', 'pendente_validacao'].includes(localStatus);
+  const isValidated = ['validado', 'aprovado'].includes(localStatus);
 
   return (
     <Card className={`overflow-hidden border-0 shadow-md bg-card transition-all duration-300 ${isProcessed ? 'opacity-60' : ''}`}>
@@ -106,17 +87,17 @@ export function AuditCard({ item, onValidate, onReject }: AuditCardProps) {
         {isProcessed && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
             <div className={`flex items-center gap-3 px-6 py-4 rounded-xl ${
-              localStatus === 'validado' 
+              isValidated 
                 ? 'bg-green-600 text-white' 
                 : 'bg-red-500 text-white'
             }`}>
-              {localStatus === 'validado' ? (
+              {isValidated ? (
                 <CheckCircle2 className="w-8 h-8" />
               ) : (
                 <XCircle className="w-8 h-8" />
               )}
               <span className="text-xl font-bold">
-                {localStatus === 'validado' ? 'APROVADA' : 'REPROVADA'}
+                {isValidated ? 'APROVADA' : 'REPROVADA'}
               </span>
             </div>
           </div>
